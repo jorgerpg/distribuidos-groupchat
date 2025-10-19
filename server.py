@@ -6,9 +6,12 @@ import hashlib
 import datetime
 import threading
 from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+import xmlrpc.client
+
 from socketserver import ThreadingMixIn
 
 DB_PATH = os.environ.get("DB_PATH", "chat.db")
+LLM_RPC_URL = os.environ.get("LLM_RPC_URL", "http://localhost:9000")
 
 
 def get_db():
@@ -255,6 +258,40 @@ class ChatService:
                   (conversation_id, me))
       if not cur.fetchone():
         return {"ok": False, "error": "NOT_A_MEMBER"}
+        # --- Easter egg: comandos que disparam o LLM ---
+
+      text = (content or "").strip()
+      is_cmd = text.lower().startswith("/motivacao")
+
+      if is_cmd:
+        # Extrai o prompt após o comando
+        parts = text.split(" ", 1)
+        prompt = parts[1].strip() if len(parts) > 1 else ""
+        if not prompt:
+          prompt = "Faça uma frase motivacional curtinha para o time."
+
+        # 1) (opcional) registra a mensagem do usuário (para dar contexto no histórico)
+        cur.execute(
+            "INSERT INTO messages(conversation_id,sender_id,content) VALUES (?,?,?)",
+            (conversation_id, me, content)
+        )
+        user_mid = cur.lastrowid
+        self._fanout_event_message(conversation_id, me, user_mid)
+
+        # 2) chama o LLM e posta como bot
+        bot_uid = self._get_or_create_bot_user()
+        reply = self._try_llm_motivation(prompt)
+        cur.execute(
+            "INSERT INTO messages(conversation_id,sender_id,content) VALUES (?,?,?)",
+            (conversation_id, bot_uid, reply)
+        )
+        bot_mid = cur.lastrowid
+        self._fanout_event_message(conversation_id, bot_uid, bot_mid)
+
+        self.conn.commit()
+        return {"ok": True, "llm": True}
+
+      # --- fluxo normal (sem comando) ---
       cur.execute(
           "INSERT INTO messages(conversation_id,sender_id,content) VALUES (?,?,?)",
           (conversation_id, me, content)
@@ -343,6 +380,7 @@ class ChatService:
       return {"ok": True}
 
   # ---------- Long-poll de eventos ----------
+
   def wait_events(self, token, after_event_id, timeout_ms=30000):
     me = self._auth(token)
     t_end = datetime.datetime.utcnow() + datetime.timedelta(milliseconds=int(timeout_ms))
@@ -374,6 +412,32 @@ class ChatService:
         return {"ok": True, "events": evs}
 
     return {"ok": True, "events": []}
+
+  def _get_or_create_bot_user(self):
+    """Garante um usuário 'MotivaBot' para postar respostas do LLM."""
+    cur = self.conn.cursor()
+    cur.execute("SELECT id FROM users WHERE email=?", ("bot@local",))
+    row = cur.fetchone()
+    if row:
+      return row[0]
+    # cria
+    salt = secrets.token_hex(8)
+    self.conn.execute(
+        "INSERT INTO users(email,name,pass_hash,salt) VALUES (?,?,?,?)",
+        ("bot@local", "MotivaBot", hash_pass("bot", salt), salt)
+    )
+    self.conn.commit()
+    cur.execute("SELECT id FROM users WHERE email=?", ("bot@local",))
+    return cur.fetchone()[0]
+
+  def _try_llm_motivation(self, user_text: str) -> str:
+    """Chama o servidor LLM (XML-RPC) para gerar a frase motivacional."""
+    try:
+      peer = xmlrpc.client.ServerProxy(LLM_RPC_URL, allow_none=True)
+      # o projeto antigo expõe generate_message(user_input: str) -> str
+      return str(peer.generate_message(user_text)).strip()
+    except Exception as e:
+      return f"(MotivaBot) não consegui falar com o LLM agora: {e.__class__.__name__}"
 
 
 def serve(host="0.0.0.0", port=8000):

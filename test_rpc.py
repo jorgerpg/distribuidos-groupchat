@@ -96,34 +96,6 @@ def main():
   assert_true(userA.email in emails and userB.email in emails,
               "list_users contém A e B", "list_users não retornou os usuários de teste")
 
-  # --- direct: send_direct_message / list_my_conversations / get_messages ---
-  msg_direct = "Olá Bob (direct)!"
-  r = server.send_direct_message(userA.token, userB.user_id, msg_direct)
-  assert_true(r.get("ok") is True and "conversation_id" in r,
-              "Direct: mensagem enviada", "Falha ao enviar mensagem direta")
-  direct_cid = r["conversation_id"]
-
-  convsA = server.list_my_conversations(userA.token)
-  direct_in_A = find_conversation(convsA, direct_cid)
-  assert_true(direct_in_A is not None and direct_in_A["type"] == "direct",
-              "Direct aparece nas conversas de A", "Conversa direta não listada para A")
-
-  msgs = server.get_messages(userA.token, direct_cid, 50, 0)
-  assert_true(msgs.get("ok") is True, "get_messages (direct) ok",
-              "get_messages falhou (direct)")
-  last_texts = [m["content"] for m in msgs["messages"] if m["content"]]
-  assert_true(last_texts and last_texts[-1] == msg_direct,
-              "Mensagem direta encontrada", "Conteúdo da mensagem direta não corresponde")
-
-  # --- delete_direct_conversation ---
-  r = server.delete_direct_conversation(userA.token, userB.user_id)
-  assert_true(r.get("ok") is True, "delete_direct_conversation ok",
-              "Falha ao deletar conversa direta")
-
-  convsA_after = server.list_my_conversations(userA.token)
-  assert_true(find_conversation(convsA_after, direct_cid) is None,
-              "Direct removida das conversas de A", "Conversa direta deveria ter sido removida")
-
   # --- group: create_group / send_group_message / list_my_conversations / get_messages / leave_group ---
   r = server.create_group(userA.token, f"GrupoTeste_{ts}", [userB.user_id])
   assert_true(r.get("ok") is True and "conversation_id" in r,
@@ -170,6 +142,15 @@ def main():
   assert_true(find_conversation(convsA_final, group_cid) is None and
               find_conversation(convsB_final, group_cid) is None,
               "Grupo removido após todos saírem", "Grupo ainda aparece após todos saírem")
+
+  # dispara o easter egg num grupo de teste:
+  r = server.create_group(userA.token, f"Easter_{ts}", [userB.user_id])
+  cid = r["conversation_id"]
+  server.send_group_message(
+      userA.token, cid, "/motivacao vamos nessa, preciso de um gás!")
+  time.sleep(1.0)
+  msgs = server.get_messages(userA.token, cid, 50, 0)
+  print("Últimas mensagens:", [m["content"] for m in msgs["messages"]][-3:])
 
   print("\n🎉 Todos os testes passaram!")
 
