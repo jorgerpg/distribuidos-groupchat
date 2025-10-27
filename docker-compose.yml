@@ -15,6 +15,7 @@ services:
     volumes:
       # volume nomeado para persistir o SQLite
       - sdchat_data:/data
+      - ./:/app
       # (opcional, modo dev) descomente para editar estáticos sem rebuild:
       # - ./static:/app/static:ro
       # - ./server.py:/app/server.py:ro

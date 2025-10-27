@@ -31,6 +31,31 @@ function showScreen(idToShow){
 function openModal(){ document.getElementById('modal').classList.add('show'); }
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 
+// ===== Navegação inferior =====
+const PANES = Array.from(document.querySelectorAll('[data-pane]'));
+const NAV_BTNS = Array.from(document.querySelectorAll('[data-pane-target]'));
+let ACTIVE_PANE = 'users';
+
+function activatePane(name, opts = {}){
+  ACTIVE_PANE = name;
+  PANES.forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+  if (!opts.skipNav){
+    NAV_BTNS.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.paneTarget === name);
+    });
+  }
+}
+
+NAV_BTNS.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.paneTarget;
+    if (target){
+      activatePane(target);
+    }
+  });
+});
+activatePane('users');
+
 // ===== XML-RPC helpers =====
 function escapeXml(s){ return s.replace(/[<>&'"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c])); }
 function toXml(val){
@@ -96,6 +121,7 @@ function renderConversations(convs){
     }
     li.onclick = async () => {
       CURRENT_CONV = c;
+      activatePane('chat', { skipNav: true });
       await loadMsgs();
     };
     ul.appendChild(li);
@@ -204,6 +230,7 @@ $('#btn_login').onclick = async () => {
     $('#me').textContent = `Logado como ${email} (id ${ME})`;
     LAST_EVENT_ID = 0;
     showScreen('view-chat');
+    activatePane('users');
     await Promise.all([refreshUsers(), refreshConversationsOnce()]);
     longPollEvents();
   }catch(e){ alert('Erro no login'); log(e.message); }
@@ -251,6 +278,7 @@ async function refreshUsers(){
           try{
             const resp = await xmlRpcCall('ensure_pair_group', [TOKEN, u.id]);
             CURRENT_CONV = { id: resp.conversation_id, type: 'group', title: null };
+            activatePane('chat', { skipNav: true });
             await Promise.all([loadMsgs(), refreshConversationsOnce()]);
           }catch(e){ alert('Erro ao abrir chat 1:1'); log(e.message); }
           return;
@@ -313,13 +341,17 @@ $('#msg_text').addEventListener('keydown', (ev) => {
   }
 });
 
-$('#btn_leave_group').onclick = async () => {
+$('#btn_delete_group').onclick = async () => {
   if (!CURRENT_CONV || CURRENT_CONV.type !== 'group'){ alert('Não é grupo.'); return; }
+  if (!confirm('Excluir esta conversa? Se ainda houver participantes ativos você apenas sairá do grupo.')){
+    return;
+  }
   try{
     const r = await xmlRpcCall('leave_group', [TOKEN, CURRENT_CONV.id]);
     log('leave_group: ' + JSON.stringify(r));
     CURRENT_CONV = null;
     $('#msgs').innerHTML=''; $('#current_conv').textContent='Nenhuma conversa selecionada';
+    activatePane('convs');
     await refreshConversationsOnce();
   }catch(e){ alert('Erro ao sair do grupo'); log(e.message); }
 };
