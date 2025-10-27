@@ -1,7 +1,13 @@
 // ===== Config =====
-const RPC_URL = (location.hostname === 'localhost'
-  ? `http://localhost:8000/RPC2`
-  : `http://${location.hostname}:8000/RPC2`);
+const STORAGE_KEY_RPC = 'sdchat_rpc_url';
+const DEFAULT_RPC_URL = deriveDefaultRpcUrl();
+let RPC_URL = DEFAULT_RPC_URL;
+try{
+  const stored = localStorage.getItem(STORAGE_KEY_RPC);
+  if (stored){
+    RPC_URL = normalizeRpcUrl(stored);
+  }
+}catch(_e){}
 
 // Estado global
 let TOKEN = null;
@@ -31,6 +37,33 @@ function showScreen(idToShow){
 function openModal(){ document.getElementById('modal').classList.add('show'); }
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 
+function deriveDefaultRpcUrl(){
+  const proto = location.protocol.startsWith('http') ? location.protocol : 'http:';
+  const host = location.hostname || 'localhost';
+  return `${proto}//${host}:8000/RPC2`;
+}
+function normalizeRpcUrl(raw){
+  let value = (raw || '').trim();
+  if (!value){
+    return DEFAULT_RPC_URL;
+  }
+  if (!/^https?:\/\//i.test(value)){
+    value = `http://${value}`;
+  }
+  if (!/\/rpc2$/i.test(value)){
+    value = value.replace(/\/+$/, '') + '/RPC2';
+  }
+  return value;
+}
+function setRpcUrl(raw){
+  const normalized = normalizeRpcUrl(raw);
+  RPC_URL = normalized;
+  try{
+    localStorage.setItem(STORAGE_KEY_RPC, normalized);
+  }catch(_e){}
+  return normalized;
+}
+
 // ===== Navegação inferior =====
 const PANES = Array.from(document.querySelectorAll('[data-pane]'));
 const NAV_BTNS = Array.from(document.querySelectorAll('[data-pane-target]'));
@@ -55,6 +88,18 @@ NAV_BTNS.forEach(btn => {
   });
 });
 activatePane('users');
+
+const SERVER_INPUT = $('#server_url');
+function syncRpcUrlFromInput(){
+  if (!SERVER_INPUT) return RPC_URL;
+  const updated = setRpcUrl(SERVER_INPUT.value);
+  SERVER_INPUT.value = updated;
+  return updated;
+}
+if (SERVER_INPUT){
+  SERVER_INPUT.value = RPC_URL;
+  SERVER_INPUT.addEventListener('blur', syncRpcUrlFromInput);
+}
 
 // ===== XML-RPC helpers =====
 function escapeXml(s){ return s.replace(/[<>&'"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c])); }
@@ -220,6 +265,7 @@ async function longPollEvents(){
 
 // ===== Login / Cadastro =====
 $('#btn_login').onclick = async () => {
+  syncRpcUrlFromInput();
   const email = $('#login_email').value.trim();
   const pass  = $('#login_pass').value;
   try{
@@ -240,6 +286,7 @@ $('#open-register').onclick = openModal;
 document.querySelectorAll('[data-close]').forEach(el => el.onclick = closeModal);
 
 $('#btn_reg').onclick = async () => {
+  syncRpcUrlFromInput();
   const name = $('#reg_name').value.trim();
   const email = $('#reg_email').value.trim();
   const pass  = $('#reg_pass').value;
